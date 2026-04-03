@@ -95,7 +95,7 @@ st.markdown('<p class="main-title">🚗 KHEPI 차량 2부제 점검 시스템</p
 tab1, tab2, tab3 = st.tabs(["🔍 차량 조회/인식", "📊 점검 누적 목록", "📖 이용 가이드"])
 
 with tab1:
-    mode = st.radio("입력 모드 선택", ["개별 확인", "일괄 처리 (여러 대)"], horizontal=True)
+    mode = st.radio("입력 모드 선택", ["개별 확인", "일괄 확인 (여러 대)"], horizontal=True)
     
     if mode == "개별 확인":
         col1, col2 = st.columns(2)
