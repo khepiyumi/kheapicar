@@ -115,9 +115,11 @@ with tab4:
 # 3. 결과 출력 및 홀짝제 판별 로직
 # =========================
 if car_number:
+    # 1. 차량 번호 형식 정리
     search_target = str(car_number).strip().zfill(4)
     result = df[df['car_number'] == search_target]
 
+    # 2. 시간 및 홀짝 판별
     now_utc = datetime.datetime.utcnow()
     korea_time = now_utc + datetime.timedelta(hours=9)
     today_day = korea_time.day
@@ -128,37 +130,43 @@ if car_number:
     is_car_even = (last_digit % 2 == 0)
     is_violation = (is_date_even != is_car_even)
 
+    # 3. 결과 데이터 준비 (나중에 저장하기 위함)
+    name_val = result.iloc[0]['name'] if not result.empty else "미등록"
+    dept_val = result.iloc[0]['department'] if not result.empty else "외부/미등록"
+    status_val = "위반" if is_violation else "정상"
+
     st.markdown("---")
     
-    # 결과 화면 출력
+    # [화면 표시] 등록 정보 및 결과
     if not result.empty:
         st.success(f"### ✅ 등록 차량 확인: {search_target}")
-        row = result.iloc[0]
         c1, c2 = st.columns(2)
-        with c1: st.markdown(f"**성명:** {row['name']}")
-        with c2: st.markdown(f"**소속:** {row['department']}")
-        name_val, dept_val = row['name'], row['department']
+        with c1: st.markdown(f"**👤 성명:** {name_val}")
+        with c2: st.markdown(f"**🏢 소속:** {dept_val}")
     else:
         st.error(f"### ❌ 미등록 차량: {search_target}")
         st.write("방문객 안내 대상을 확인해 주세요.")
-        name_val, dept_val = "미등록", "외부/미등록"
 
-    # 홀짝 결과
-    st.markdown(f"**📅 오늘({day_type_str}날) 점검 결과:** " + 
-                (f"🚨 위반" if is_violation else "✅ 정상"))
+    status_color = "🚨" if is_violation else "✅"
+    st.info(f"{status_color} **오늘({day_type_str}날) 결과:** {status_val} (끝자리 {last_digit})")
 
-    # [핵심] 기록 추가 버튼
-    if st.button("📋 이 결과를 점검 기록에 추가", key=f"add_{search_target}_{datetime.datetime.now().timestamp()}"):
+    # [중요] 4. 기록 추가 버튼 (들여쓰기 주의!)
+    # 버튼 클릭 시 리스트에 데이터를 넣습니다. 
+    # key값에 타임스탬프를 넣어 중복 에러를 방지합니다.
+    btn_key = f"save_{search_target}_{datetime.datetime.now().strftime('%H%M%S')}"
+    
+    if st.button("📋 이 결과를 점검 목록에 기록하기", key=btn_key):
         new_entry = {
             "점검시간": korea_time.strftime("%H:%M:%S"),
             "차량번호": search_target,
             "성명": name_val,
             "부서": dept_val,
-            "판정": "위반" if is_violation else "정상"
+            "판정": status_val
         }
-        # 세션 리스트에 추가
+        # st.session_state에 데이터 추가
         st.session_state.check_history.append(new_entry)
-        st.success("✅ 점검 기록 탭에 추가되었습니다! (상단 탭에서 확인하세요)")
+        st.success("✅ '점검 기록' 탭에 저장되었습니다!")
+       
 
 # =========================
 # 4. [새로운 탭] 점검 기록 관리
