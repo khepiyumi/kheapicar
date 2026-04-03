@@ -146,7 +146,7 @@ with tab1:
         with m_col1:
             st.markdown("**1. 텍스트 입력 (번호 4자리 나열)**")
             bulk_text = st.text_area("쉼표, 엔터, 공백 등으로 구분 가능", placeholder="1234 5678 9012", height=150)
-            if st.button("텍스트 분석 시작"):
+            if st.button("차번호 조회 시작"):
                 nums = re.findall(r'\d{4}', bulk_text)
                 if nums:
                     temp_res = []
