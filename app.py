@@ -68,13 +68,19 @@ def load_db():
 def load_ocr():
     return easyocr.Reader(['ko', 'en'])
 
-# ✅ 효율화: DB 딕셔너리화 (검색 속도 최적화)
+# ✅ 효율화 및 에러 방지 로직
 df = load_db()
+
+# 중복된 차량 번호가 있을 경우 'ValueError'를 방지하기 위해 중복 제거
+# 동일 번호가 여러 개라면 가장 위에 있는 행만 유지합니다.
+df = df.drop_duplicates(subset=['car_number'], keep='first')
+
+# 검색 속도 최적화를 위한 딕셔너리화
 db_dict = df.set_index('car_number').to_dict('index')
 reader = load_ocr()
 
 def get_car_info(car_num):
-    """딕셔너리를 이용한 초고속 정보 조회"""
+    """딕셔너리 조회를 통해 성명과 부서를 즉시 반환"""
     info = db_dict.get(car_num)
     if info:
         return info['name'], info['department']
@@ -130,9 +136,9 @@ with tab1:
                         file_bytes = np.frombuffer(up_file.read(), np.uint8)
                         img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                         
-                        # ✅ 최적화: 번호판 위치 유동성을 위해 크롭 없이 전체 리사이즈(600px) 분석
+                        # 번호판 위치 유동성을 고려하여 전체 이미지 분석 (600px 최적화)
                         img_for_ocr = resize_image(img_raw, 600)
-                        results = reader.readtext(img_for_ocr, detail=0) # 글자만 빠르게 추출
+                        results = reader.readtext(img_for_ocr, detail=0)
                         nums = re.findall(r'\d{4}', "".join(results))
                         
                         if nums:
@@ -140,7 +146,7 @@ with tab1:
                             st.session_state.last_single_file = file_id
                             st.toast(f"추출 성공: {st.session_state.current_car}")
                 
-                # ✅ 이미지 미리보기 크기 고정
+                # 업로드된 이미지 미리보기 크기 고정
                 st.image(resize_image(cv2.imdecode(np.frombuffer(up_file.getvalue(), np.uint8), cv2.IMREAD_COLOR), 300), 
                          caption="업로드된 이미지", channels="BGR", use_container_width=False)
 
@@ -148,7 +154,7 @@ with tab1:
             st.markdown("---")
             car_num = st.session_state.current_car
             is_v, kt, d_type = check_violation(car_num)
-            name, dept = get_car_info(car_num) # 최적화된 조회 함수 사용
+            name, dept = get_car_info(car_num)
             
             st.subheader(f"조회 결과: {car_num}")
             if is_v: st.error(f"🚨 운행 위반 ({kt.month}월 {kt.day}일 {d_type}날)")
@@ -202,7 +208,7 @@ with tab1:
                         img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                         if img_raw is None: continue
                         
-                        # ✅ 전체 영역 분석 (위치 제약 없음) + 리사이즈 최적화
+                        # 전체 영역 분석 및 OCR 최적화
                         img_ocr = resize_image(img_raw, 600)
                         ocr_res = reader.readtext(img_ocr, detail=0)
                         found = re.findall(r'\d{4}', "".join(ocr_res))
@@ -211,7 +217,7 @@ with tab1:
                         is_v, kt, _ = check_violation(n)
                         name, dept = get_car_info(n)
                         
-                        # 썸네일 생성 (이미지 비율 유지)
+                        # 썸네일 생성
                         h_r, w_r = img_raw.shape[:2]
                         thumb = cv2.resize(img_raw, (150, int(h_r * (150 / w_r))))
                         
@@ -227,7 +233,6 @@ with tab1:
                     status.success("✅ 분석 완료!")
                     st.rerun()
 
-        # 결과 출력 (테이블 및 썸네일)
         if st.session_state.batch_text_results:
             st.markdown("---")
             st.write("### 📋 텍스트 분석 결과")
@@ -277,7 +282,7 @@ with tab2:
     else: st.write("기록이 없습니다.")
         
 with tab3:
-    st.info("💡 **KHEPI 차량 2부제 점검 가이드 Ver. 1.1**")
+    st.info("💡 **KHEPI 차량 2부제 점검 가이드 Ver. 1.2**")
     st.markdown("""
     1. **시스템 목적**: 본 사이트는 차량 2부제 시행에 따라 KHEPI 직원 차량 및 위반 여부를 확인하기 위한 시스템입니다.
     <br><br>
