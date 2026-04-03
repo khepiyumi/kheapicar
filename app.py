@@ -148,7 +148,7 @@ if car_number:
                 (f"🚨 위반" if is_violation else "✅ 정상"))
 
     # [핵심] 기록 추가 버튼
-    if st.button("📋 이 결과를 점검 기록에 추가"):
+   if st.button("📋 이 결과를 점검 기록에 추가", key=f"add_{search_target}_{datetime.datetime.now().timestamp()}"):
         new_entry = {
             "점검시간": korea_time.strftime("%H:%M:%S"),
             "차량번호": search_target,
@@ -156,8 +156,9 @@ if car_number:
             "부서": dept_val,
             "판정": "위반" if is_violation else "정상"
         }
+        # 세션 리스트에 추가
         st.session_state.check_history.append(new_entry)
-        st.toast("기록에 추가되었습니다!")
+        st.success("✅ 점검 기록 탭에 추가되었습니다! (상단 탭에서 확인하세요)")
 
 # =========================
 # 4. [새로운 탭] 점검 기록 관리
