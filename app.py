@@ -136,7 +136,7 @@ with tab1:
 
             if st.button("📋 이 결과 저장하기", type="primary"):
                 st.session_state.check_history.append({
-                    "점검시간": kt.strftime("%Y-%m-%d %H:%M:%S"), "차량번호": car_num,
+                    "점검시간": kt.strftime("%y-%m-%d %H:%M:%S"), "차량번호": car_num,
                     "성명": name, "부서": dept, "판정": "위반" if is_v else "정상"
                 })
                 st.session_state.current_car = None
@@ -157,7 +157,7 @@ with tab1:
                         is_v, kt, _ = check_violation(n)
                         res_db = df[df['car_number'] == n]
                         temp_res.append({
-                            "점검시간": kt.strftime("%Y-%m-%d %H:%M:%S"), "차량번호": n,
+                            "점검시간": kt.strftime("%y-%m-%d %H:%M:%S"), "차량번호": n,
                             "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
                             "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
                             "판정": "위반" if is_v else "정상"
@@ -188,7 +188,7 @@ with tab1:
                     res_db = df[df['car_number'] == n]
                     
                     st.session_state.batch_visual_results.append({
-                        "img_base64": b64_img, "점검시간": kt.strftime("%H:%M:%S"), "차량번호": n,
+                        "img_base64": b64_img, "점검시간": kt.strftime("%y-%m-%d %H:%M:%S"), "차량번호": n,
                         "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
                         "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
                         "판정": "위반" if is_v else "정상" if found else "실패"
