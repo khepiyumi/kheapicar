@@ -119,20 +119,34 @@ with tab1:
         with col2:
             st.subheader("📷 사진 인식")
             up_file = st.file_uploader("사진 업로드", type=["jpg", "png", "jpeg"], key="single")
+            
             if up_file:
-                # 1. 파일 읽기 및 압축
-                file_bytes = np.frombuffer(up_file.read(), np.uint8)
-                img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                img = resize_image(img_raw, max_width=600) # 분석용 이미지 압축
-                
-                st.image(img, width=200, channels="BGR")
-                if st.button("번호 추출"):
-                    with st.spinner("번호 분석 중..."): # 로딩 표시 추가
+                # [변경점] 파일 이름이나 크기가 바뀌었을 때만 분석하도록 세션 체크 (무한 루프 방지)
+                file_id = f"{up_file.name}_{up_file.size}"
+                if st.session_state.get('last_single_file') != file_id:
+                    with st.spinner("이미지 분석 중..."):
+                        # 1. 파일 읽기 및 압축
+                        file_bytes = np.frombuffer(up_file.read(), np.uint8)
+                        img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                        img = resize_image(img_raw, max_width=600)
+                        
+                        # 2. OCR 분석 즉시 실행
                         results = reader.readtext(img)
-                        nums = re.findall(r'\d+', "".join([r[1] for r in results]))
+                        # 숫자만 추출
+                        combined_text = "".join([r[1] for r in results])
+                        nums = re.findall(r'\d+', combined_text)
+                        
                         if nums:
-                            st.session_state.current_car = "".join(nums)[-4:]
-                            st.toast(f"추출 성공: {st.session_state.current_car}")
+                            extracted_num = "".join(nums)[-4:]
+                            st.session_state.current_car = extracted_num
+                            st.session_state.last_single_file = file_id # 분석 완료 기록
+                            st.toast(f"추출 성공: {extracted_num}")
+                        else:
+                            st.error("번호를 인식하지 못했습니다. 직접 입력해 주세요.")
+                
+                # 이미지 미리보기
+                st.image(resize_image(cv2.imdecode(np.frombuffer(up_file.getvalue(), np.uint8), cv2.IMREAD_COLOR), max_width=300), 
+                         caption="업로드된 이미지", channels="BGR")
 
         if st.session_state.current_car:
             st.markdown("---")
@@ -185,52 +199,43 @@ with tab1:
 
         with m_col2:
             st.markdown("**2. 사진 여러 장 업로드 (자동 분석)**")
-            # 파일을 선택하는 순간 Streamlit이 코드를 재실행하며 아래 if문으로 진입합니다.
             multi_files = st.file_uploader("여러 사진 선택", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="auto_batch")
             
             if multi_files:
-                # [변경점] 현재 업로드된 파일 이름 리스트 추출
                 current_file_names = [f.name for f in multi_files]
-                
-                # [변경점] 이전 분석 결과와 파일 목록이 다를 때만(새로 업로드했을 때만) 분석 실행
-                if current_file_names != st.session_state.last_files:
-                    st.session_state.batch_visual_results = [] # 결과 초기화
-                    st.session_state.last_files = current_file_names # 현재 파일 목록 기억
+                if current_file_names != st.session_state.get('last_files', []):
+                    st.session_state.batch_visual_results = []
+                    st.session_state.last_files = current_file_names
                     
                     p_bar = st.progress(0)
                     status_text = st.empty()
                     
                     for i, f in enumerate(multi_files):
                         status_text.text(f"📸 {f.name} 분석 중... ({i+1}/{len(multi_files)})")
-                        
                         file_bytes = np.frombuffer(f.read(), np.uint8)
                         img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                         if img_raw is None: continue
                         
                         img = resize_image(img_raw, max_width=600)
-                        
-                        # 썸네일 생성 및 Base64 변환
                         thumb = cv2.resize(img, (150, int(img.shape[0] * (150 / img.shape[1]))))
                         b64_img = opencv_to_base64(thumb)
                         
-                        # OCR 인식
                         ocr_res = reader.readtext(img)
                         found = re.findall(r'\d{4}', "".join([r[1] for r in ocr_res]))
                         n = found[-1] if found else "실패"
-                        
                         is_v, kt, _ = check_violation(n)
                         res_db = df[df['car_number'] == n]
                         
+                        # 데이터 구조 정의 (텍스트 분석과 동일하게 맞춤)
                         st.session_state.batch_visual_results.append({
                             "img_base64": b64_img, 
-                            "점검시간": kt.strftime("%y%m%d %H:%M:%S"), # 요청하신 YYMMDD 형식
+                            "점검시간": kt.strftime("%y%m%d %H:%M:%S"),
                             "차량번호": n,
                             "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
                             "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
                             "판정": "위반" if is_v else "정상" if found else "실패"
                         })
                         p_bar.progress((i + 1) / len(multi_files))
-                    
                     status_text.text("✅ 분석 완료!")
                     p_bar.empty()
                     
@@ -252,27 +257,35 @@ with tab1:
         # 2. 사진 분석 결과 (썸네일)
         if st.session_state.batch_visual_results:
             st.markdown("---")
-            st.write("### 📷 사진 분석 결과")
-            cols = st.columns(5)
-            for idx, item in enumerate(st.session_state.batch_visual_results):
-                color = "red" if item['판정'] == "위반" else "green" if item['판정'] == "정상" else "gray"
-                with cols[idx % 5]:
-                    st.markdown(f"""
-                        <div class="thumb-card">
-                            <img src="{item['img_base64']}" class="thumb-img">
-                            <div class="result-text">{item['차량번호']}</div>
-                            <div class="result-text" style="color: {color};">{item['판정']}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+            st.write("### 📷 사진 분석 상세 결과")
             
-            if st.button("💾 위 사진 내역 모두 기록하기", type="primary"):
+            # 1. 텍스트 분석과 동일한 형태의 데이터프레임 생성 (이미지 데이터 제외)
+            visual_df = pd.DataFrame(st.session_state.batch_visual_results).drop(columns=['img_base64'])
+            st.table(visual_df) # 또는 st.dataframe(visual_df, use_container_width=True)
+            
+            # 2. 시각적 확인을 위한 썸네일 뷰 (선택 사항)
+            with st.expander("🖼️ 분석 사진 썸네일 보기"):
+                cols = st.columns(5)
+                for idx, item in enumerate(st.session_state.batch_visual_results):
+                    color = "red" if item['판정'] == "위반" else "green" if item['판정'] == "정상" else "gray"
+                    with cols[idx % 5]:
+                        st.markdown(f"""
+                            <div class="thumb-card">
+                                <img src="{item['img_base64']}" class="thumb-img">
+                                <div class="result-text">{item['차량번호']}</div>
+                                <div class="result-text" style="color: {color};">{item['판정']}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+            
+            # 3. 저장 버튼
+            if st.button("💾 위 사진 내역 모두 기록하기", type="primary", key="save_visual"):
                 for item in st.session_state.batch_visual_results:
                     if item['차량번호'] != "실패":
                         data = item.copy()
-                        del data['img_base64']
+                        del data['img_base64'] # 이미지 데이터는 히스토리에 저장하지 않음
                         st.session_state.check_history.append(data)
                 st.session_state.batch_visual_results = []
-                st.success("저장 완료!")
+                st.success("사진 점검 내역이 저장되었습니다.")
                 st.rerun()
 
 # =========================
