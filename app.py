@@ -127,8 +127,11 @@ with tab1:
             dept = res_db.iloc[0]['department'] if not res_db.empty else "외부"
             
             st.subheader(f"조회 결과: {car_num}")
-            if is_v: st.error(f"🚨 운행 위반 (오늘은 {d_type}날)")
-            else: st.success(f"✅ 정상 운행 (오늘은 {d_type}날)")
+            display_date = f"{kt.month}월 {kt.day}일 {d_type}날"
+            if is_v: 
+                st.error(f"🚨 운행 위반 ({display_date})")
+            else: 
+                st.success(f"✅ 정상 운행 ({display_date})")
             st.write(f"**소속:** {dept} | **성명:** {name}")
 
             if st.button("📋 이 결과 저장하기", type="primary"):
