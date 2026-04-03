@@ -68,19 +68,16 @@ def load_db():
 def load_ocr():
     return easyocr.Reader(['ko', 'en'])
 
-# ✅ 효율화 및 에러 방지 로직
+
 df = load_db()
 
-# 중복된 차량 번호가 있을 경우 'ValueError'를 방지하기 위해 중복 제거
-# 동일 번호가 여러 개라면 가장 위에 있는 행만 유지합니다.
 df = df.drop_duplicates(subset=['car_number'], keep='first')
 
-# 검색 속도 최적화를 위한 딕셔너리화
+
 db_dict = df.set_index('car_number').to_dict('index')
 reader = load_ocr()
 
 def get_car_info(car_num):
-    """딕셔너리 조회를 통해 성명과 부서를 즉시 반환"""
     info = db_dict.get(car_num)
     if info:
         return info['name'], info['department']
