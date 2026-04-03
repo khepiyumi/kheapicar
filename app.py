@@ -202,9 +202,9 @@ with tab1:
         # 1. 텍스트 분석 결과 테이블
         if st.session_state.batch_text_results:
             st.markdown("---")
-            st.write("### 📋 텍스트 분석 결과")
+            st.write("### 📋 차번호 분석 결과")
             st.table(pd.DataFrame(st.session_state.batch_text_results))
-            if st.button("💾 위 텍스트 결과 모두 기록하기", type="primary"):
+            if st.button("💾 위 결과 모두 기록하기", type="primary"):
                 st.session_state.check_history.extend(st.session_state.batch_text_results)
                 st.session_state.batch_text_results = []
                 st.success("누적 목록에 저장되었습니다.")
