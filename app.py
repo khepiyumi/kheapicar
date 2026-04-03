@@ -198,9 +198,8 @@ with tab1:
                     st.warning("4자리 숫자를 찾지 못했습니다.")
 
         with m_col2:
-            st.markdown("**2. 사진 여러 장 업로드 (자동 분석)**")
+            st.markdown("**2. 사진 여러 장 업로드**")
             multi_files = st.file_uploader("여러 사진 선택", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="auto_batch")
-            
             if multi_files:
                 current_file_names = [f.name for f in multi_files]
                 if current_file_names != st.session_state.get('last_files', []):
@@ -208,27 +207,22 @@ with tab1:
                     st.session_state.last_files = current_file_names
                     
                     p_bar = st.progress(0)
-                    status_text = st.empty()
-                    
                     for i, f in enumerate(multi_files):
-                        status_text.text(f"📸 {f.name} 분석 중... ({i+1}/{len(multi_files)})")
                         file_bytes = np.frombuffer(f.read(), np.uint8)
                         img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                         if img_raw is None: continue
                         
-                        img = resize_image(img_raw, max_width=600)
+                        img = resize_image(img_raw, 600)
                         thumb = cv2.resize(img, (150, int(img.shape[0] * (150 / img.shape[1]))))
-                        b64_img = opencv_to_base64(thumb)
-                        
                         ocr_res = reader.readtext(img)
                         found = re.findall(r'\d{4}', "".join([r[1] for r in ocr_res]))
                         n = found[-1] if found else "실패"
+                        
                         is_v, kt, _ = check_violation(n)
                         res_db = df[df['car_number'] == n]
                         
-                        # 데이터 구조 정의 (텍스트 분석과 동일하게 맞춤)
                         st.session_state.batch_visual_results.append({
-                            "img_base64": b64_img, 
+                            "img_base64": opencv_to_base64(thumb), 
                             "점검시간": kt.strftime("%y%m%d %H:%M:%S"),
                             "차량번호": n,
                             "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
@@ -236,8 +230,7 @@ with tab1:
                             "판정": "위반" if is_v else "정상" if found else "실패"
                         })
                         p_bar.progress((i + 1) / len(multi_files))
-                    status_text.text("✅ 분석 완료!")
-                    p_bar.empty()
+                    st.success("✅ 모든 사진 분석 완료!")
                     
         # ---------------------------
         # [결과 출력 영역]
