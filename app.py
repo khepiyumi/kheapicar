@@ -140,7 +140,7 @@ with tab1:
                         
                         if nums:
                             st.session_state.current_car = nums[-1]
-                            st.session_state.last_single_file = file_id
+                            st.session_state["last_single_file"] = file_id
                             st.toast(f"추출 성공: {st.session_state.current_car}")
                 
                 # 업로드된 이미지 미리보기 크기 고정
