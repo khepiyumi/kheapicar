@@ -126,7 +126,7 @@ with tab1:
                             st.session_state.current_car = "".join(nums)[-4:]
                             st.session_state.last_single_file = file_id
                             st.toast(f"추출 성공: {st.session_state.current_car}")
-                st.image(resize_image(cv2.imdecode(np.frombuffer(up_file.getvalue(), np.uint8), cv2.IMREAD_COLOR), 300), caption="업로드된 이미지", channels="BGR")
+                st.image(resize_image(cv2.imdecode(np.frombuffer(up_file.getvalue(), np.uint8), cv2.IMREAD_COLOR), 100), caption="업로드된 이미지", channels="BGR")
 
         if st.session_state.current_car:
             st.markdown("---")
