@@ -80,7 +80,7 @@ with tab1:
             else:
                 st.warning("번호를 입력하세요.")
 
-  with col2:
+      with col2:
         st.subheader("📷 사진 인식")
         up_file = st.file_uploader("번호판 촬영/업로드", type=["jpg", "png", "jpeg"])
         
