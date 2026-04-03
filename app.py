@@ -21,6 +21,8 @@ if 'batch_text_results' not in st.session_state:
     st.session_state.batch_text_results = []
 if 'batch_visual_results' not in st.session_state:
     st.session_state.batch_visual_results = []
+if 'last_files' not in st.session_state:
+    st.session_state.last_files = []
 
 # 사이드바 설정
 with st.sidebar:
@@ -85,6 +87,15 @@ def opencv_to_base64(image):
     _, buffer = cv2.imencode('.jpg', image)
     return f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
+def resize_image(image, max_width=800):
+    h, w = image.shape[:2]
+    if w > max_width:
+        ratio = max_width / float(w)
+        new_dim = (max_width, int(h * ratio))
+        return cv2.resize(image, new_dim, interpolation=cv2.INTER_AREA)
+    return image
+    
+
 df = load_db()
 reader = load_ocr()
 
@@ -109,14 +120,19 @@ with tab1:
             st.subheader("📷 사진 인식")
             up_file = st.file_uploader("사진 업로드", type=["jpg", "png", "jpeg"], key="single")
             if up_file:
-                img = cv2.imdecode(np.frombuffer(up_file.read(), np.uint8), cv2.IMREAD_COLOR)
+                # 1. 파일 읽기 및 압축
+                file_bytes = np.frombuffer(up_file.read(), np.uint8)
+                img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                img = resize_image(img_raw, max_width=600) # 분석용 이미지 압축
+                
                 st.image(img, width=200, channels="BGR")
                 if st.button("번호 추출"):
-                    results = reader.readtext(img)
-                    nums = re.findall(r'\d+', "".join([r[1] for r in results]))
-                    if nums:
-                        st.session_state.current_car = "".join(nums)[-4:]
-                        st.toast(f"추출 성공: {st.session_state.current_car}")
+                    with st.spinner("번호 분석 중..."): # 로딩 표시 추가
+                        results = reader.readtext(img)
+                        nums = re.findall(r'\d+', "".join([r[1] for r in results]))
+                        if nums:
+                            st.session_state.current_car = "".join(nums)[-4:]
+                            st.toast(f"추출 성공: {st.session_state.current_car}")
 
         if st.session_state.current_car:
             st.markdown("---")
@@ -168,33 +184,56 @@ with tab1:
                     st.warning("4자리 숫자를 찾지 못했습니다.")
 
         with m_col2:
-            st.markdown("**2. 사진 여러 장 업로드**")
-            multi_files = st.file_uploader("여러 사진 선택", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-            if st.button("사진 일괄 분석 시작") and multi_files:
-                st.session_state.batch_visual_results = []
-                p_bar = st.progress(0)
-                for i, f in enumerate(multi_files):
-                    img = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
-                    if img is None: continue
+            st.markdown("**2. 사진 여러 장 업로드 (자동 분석)**")
+            # 파일을 선택하는 순간 Streamlit이 코드를 재실행하며 아래 if문으로 진입합니다.
+            multi_files = st.file_uploader("여러 사진 선택", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="auto_batch")
+            
+            if multi_files:
+                # [변경점] 현재 업로드된 파일 이름 리스트 추출
+                current_file_names = [f.name for f in multi_files]
+                
+                # [변경점] 이전 분석 결과와 파일 목록이 다를 때만(새로 업로드했을 때만) 분석 실행
+                if current_file_names != st.session_state.last_files:
+                    st.session_state.batch_visual_results = [] # 결과 초기화
+                    st.session_state.last_files = current_file_names # 현재 파일 목록 기억
                     
-                    # 썸네일
-                    thumb = cv2.resize(img, (200, int(img.shape[0] * (200 / img.shape[1]))))
-                    b64_img = opencv_to_base64(thumb)
+                    p_bar = st.progress(0)
+                    status_text = st.empty()
                     
-                    ocr_res = reader.readtext(img)
-                    found = re.findall(r'\d{4}', "".join([r[1] for r in ocr_res]))
-                    n = found[-1] if found else "실패"
-                    is_v, kt, _ = check_violation(n)
-                    res_db = df[df['car_number'] == n]
+                    for i, f in enumerate(multi_files):
+                        status_text.text(f"📸 {f.name} 분석 중... ({i+1}/{len(multi_files)})")
+                        
+                        file_bytes = np.frombuffer(f.read(), np.uint8)
+                        img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                        if img_raw is None: continue
+                        
+                        img = resize_image(img_raw, max_width=600)
+                        
+                        # 썸네일 생성 및 Base64 변환
+                        thumb = cv2.resize(img, (150, int(img.shape[0] * (150 / img.shape[1]))))
+                        b64_img = opencv_to_base64(thumb)
+                        
+                        # OCR 인식
+                        ocr_res = reader.readtext(img)
+                        found = re.findall(r'\d{4}', "".join([r[1] for r in ocr_res]))
+                        n = found[-1] if found else "실패"
+                        
+                        is_v, kt, _ = check_violation(n)
+                        res_db = df[df['car_number'] == n]
+                        
+                        st.session_state.batch_visual_results.append({
+                            "img_base64": b64_img, 
+                            "점검시간": kt.strftime("%y%m%d %H:%M:%S"), # 요청하신 YYMMDD 형식
+                            "차량번호": n,
+                            "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
+                            "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
+                            "판정": "위반" if is_v else "정상" if found else "실패"
+                        })
+                        p_bar.progress((i + 1) / len(multi_files))
                     
-                    st.session_state.batch_visual_results.append({
-                        "img_base64": b64_img, "점검시간": kt.strftime("%y-%m-%d %H:%M:%S"), "차량번호": n,
-                        "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
-                        "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
-                        "판정": "위반" if is_v else "정상" if found else "실패"
-                    })
-                    p_bar.progress((i + 1) / len(multi_files))
-
+                    status_text.text("✅ 분석 완료!")
+                    p_bar.empty()
+                    
         # ---------------------------
         # [결과 출력 영역]
         # ---------------------------
