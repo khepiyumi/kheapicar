@@ -22,6 +22,9 @@ if 'batch_visual_results' not in st.session_state:
     st.session_state.batch_visual_results = []
 if 'last_files' not in st.session_state:
     st.session_state.last_files = []
+# ✅ 과부하 방지용 개별 파일 체크 변수 추가
+if 'last_single_file' not in st.session_state:
+    st.session_state.last_single_file = None
 
 # 사이드바 설정
 with st.sidebar:
@@ -30,6 +33,8 @@ with st.sidebar:
         st.session_state.current_car = None
         st.session_state.batch_text_results = []
         st.session_state.batch_visual_results = []
+        st.session_state.last_single_file = None
+        st.session_state.last_files = []
         st.rerun()
     st.markdown("---")
     if st.button("🗑️ 전체 기록 삭제"):
@@ -60,7 +65,8 @@ def load_db():
             try: return str(int(float(val))).zfill(4)
             except: return str(val).strip().zfill(4)
         df['car_number'] = df['car_number'].apply(format_car_num)
-        return df
+        # 중복 제거 로직 (ValueError 방지)
+        return df.drop_duplicates(subset=['car_number'], keep='first')
     except:
         st.error("car_db.csv 파일을 찾을 수 없습니다."); st.stop()
 
@@ -68,12 +74,7 @@ def load_db():
 def load_ocr():
     return easyocr.Reader(['ko', 'en'])
 
-
 df = load_db()
-
-df = df.drop_duplicates(subset=['car_number'], keep='first')
-
-
 db_dict = df.set_index('car_number').to_dict('index')
 reader = load_ocr()
 
@@ -99,7 +100,7 @@ def opencv_to_base64(image):
     _, buffer = cv2.imencode('.jpg', image)
     return f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
-def resize_image(image, max_width=800):
+def resize_image(image, max_width=600):
     h, w = image.shape[:2]
     if w > max_width:
         ratio = max_width / float(w)
@@ -127,15 +128,15 @@ with tab1:
             st.subheader("📷 사진 인식")
             up_file = st.file_uploader("사진 업로드", type=["jpg", "png", "jpeg"], key="single")
             if up_file:
+                # ✅ 과부하 방지: 파일 ID 체크
                 file_id = f"{up_file.name}_{up_file.size}"
                 if st.session_state.get('last_single_file') != file_id:
-                    with st.spinner("이미지 분석 중..."):
+                    with st.spinner("🚀 자동으로 번호를 추출하는 중..."):
                         file_bytes = np.frombuffer(up_file.read(), np.uint8)
                         img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                        
-                        # 번호판 위치 유동성을 고려하여 전체 이미지 분석 (600px 최적화)
-                        img_for_ocr = resize_image(img_raw, 600)
-                        results = reader.readtext(img_for_ocr, detail=0)
+                        img_ocr = resize_image(img_raw, 600)
+                        # ✅ 성능 최적화: detail=0
+                        results = reader.readtext(img_ocr, detail=0)
                         nums = re.findall(r'\d{4}', "".join(results))
                         
                         if nums:
@@ -143,7 +144,6 @@ with tab1:
                             st.session_state["last_single_file"] = file_id
                             st.toast(f"추출 성공: {st.session_state.current_car}")
                 
-                # 업로드된 이미지 미리보기 크기 고정
                 st.image(resize_image(cv2.imdecode(np.frombuffer(up_file.getvalue(), np.uint8), cv2.IMREAD_COLOR), 300), 
                          caption="업로드된 이미지", channels="BGR", use_container_width=False)
 
@@ -185,7 +185,6 @@ with tab1:
                             "성명": name, "부서": dept, "판정": "위반" if is_v else "정상"
                         })
                     st.session_state.batch_text_results = temp_res
-                    st.success(f"{len(nums)}대 분석 완료")
 
         with m_col2:
             st.markdown("**2. 사진 여러 장 업로드**")
@@ -205,7 +204,6 @@ with tab1:
                         img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                         if img_raw is None: continue
                         
-                        # 전체 영역 분석 및 OCR 최적화
                         img_ocr = resize_image(img_raw, 600)
                         ocr_res = reader.readtext(img_ocr, detail=0)
                         found = re.findall(r'\d{4}', "".join(ocr_res))
@@ -214,16 +212,13 @@ with tab1:
                         is_v, kt, _ = check_violation(n)
                         name, dept = get_car_info(n)
                         
-                        # 썸네일 생성
                         h_r, w_r = img_raw.shape[:2]
                         thumb = cv2.resize(img_raw, (150, int(h_r * (150 / w_r))))
                         
                         st.session_state.batch_visual_results.append({
                             "img_base64": opencv_to_base64(thumb), 
                             "점검시간": kt.strftime("%y-%m-%d %H:%M:%S"),
-                            "차량번호": n,
-                            "성명": name,
-                            "부서": dept,
+                            "차량번호": n, "성명": name, "부서": dept,
                             "판정": "위반" if is_v else "정상" if found else "실패"
                         })
                         p_bar.progress((i + 1) / len(multi_files))
@@ -279,7 +274,8 @@ with tab2:
     else: st.write("기록이 없습니다.")
         
 with tab3:
-    st.info("💡 **KHEPI 차량 2부제 점검 가이드 Ver. 1.2**")
+    st.info("💡 **KHEPI 차량 2부제 점검 가이드 Ver. 1.0**")
+    
     st.markdown("""
     1. **시스템 목적**: 본 사이트는 차량 2부제 시행에 따라 KHEPI 직원 차량 및 위반 여부를 확인하기 위한 시스템입니다.
     <br><br>
