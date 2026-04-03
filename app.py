@@ -12,12 +12,11 @@ import base64
 # =========================
 st.set_page_config(page_title="KHEPI 차량 점검 시스템", layout="wide")
 
-# 기록 데이터, 개별 조회 번호, 일괄 처리 리스트 저장
+# 세션 상태 초기화
 if 'check_history' not in st.session_state:
     st.session_state.check_history = []
 if 'current_car' not in st.session_state:
     st.session_state.current_car = None
-# 일괄 처리 결과 (이미지 포함)
 if 'batch_visual_results' not in st.session_state:
     st.session_state.batch_visual_results = []
 
@@ -40,7 +39,6 @@ st.markdown("""
     <style>
     .main-title { font-size: 24px !important; font-weight: bold; margin-bottom: 15px; color: #1E3A8A; }
     .stButton>button { width: 100%; border-radius: 10px; font-weight: bold; }
-    /* 썸네일 카드 스타일 */
     .thumb-card {
         border: 1px solid #ddd;
         border-radius: 10px;
@@ -51,14 +49,12 @@ st.markdown("""
     }
     .thumb-img {
         max-width: 100%;
-        height: auto;
+        height: 120px;
+        object-fit: contain;
         border-radius: 5px;
         margin-bottom: 5px;
     }
-    .result-text {
-        font-weight: bold;
-        font-size: 14px;
-    }
+    .result-text { font-weight: bold; font-size: 13px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -66,23 +62,10 @@ st.markdown("""
 # 유틸리티 함수
 # =========================
 
-# DB 로드 함수
 @st.cache_data
 def load_db():
     try:
-        # 실제 환경에서는 car_db.csv가 필요합니다.
-        # 테스트를 위해 더미 데이터를 생성합니다. (실제 배포시에는 이 블록 삭제)
-        try:
-            df = pd.read_csv("car_db.csv")
-        except FileNotFoundError:
-            data = {
-                'car_number': ['1234', '5678', '9012', '3456'],
-                'name': ['홍길동', '김철수', '이영희', '박민수'],
-                'department': ['운영팀', '인사팀', '개발팀', '외부위탁']
-            }
-            df = pd.DataFrame(data)
-            df.to_csv("car_db.csv", index=False, encoding='utf-8-sig')
-
+        df = pd.read_csv("car_db.csv")
         df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
         df = df.dropna(subset=['car_number'])
         def format_car_num(val):
@@ -91,19 +74,16 @@ def load_db():
         df['car_number'] = df['car_number'].apply(format_car_num)
         return df
     except Exception as e:
-        st.error(f"DB 로드 실패: {e}"); st.stop()
+        st.error("car_db.csv 파일을 찾을 수 없거나 형식이 잘못되었습니다."); st.stop()
 
-# OCR 로드 함수
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['ko', 'en'])
 
-# 공통 로직: 2부제 판정 함수
 def check_violation(car_num):
     now_utc = datetime.datetime.utcnow()
     korea_time = now_utc + datetime.timedelta(hours=9)
     is_date_even = (korea_time.day % 2 == 0)
-    
     try:
         last_digit = int(car_num[-1])
         is_car_even = (last_digit % 2 == 0)
@@ -112,13 +92,11 @@ def check_violation(car_num):
     except:
         return False, korea_time, "오류"
 
-# 이미지를 base64로 인코딩하는 함수 (HTML 표시용)
 def opencv_to_base64(image):
     _, buffer = cv2.imencode('.jpg', image)
     encoded_string = base64.b64encode(buffer).decode('utf-8')
     return f"data:image/jpeg;base64,{encoded_string}"
 
-# 전역 변수 초기화
 df = load_db()
 reader = load_ocr()
 
@@ -135,64 +113,42 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("⌨️ 직접 입력")
-            input_num = st.text_input("번호 뒤 4자리 입력", max_chars=4, key="single_input")
+            input_num = st.text_input("번호 뒤 4자리 입력", max_chars=4)
             if st.button("조회"):
                 st.session_state.current_car = input_num.strip().zfill(4)
 
         with col2:
             st.subheader("📷 사진 인식")
-            up_file = st.file_uploader("사진 업로드", type=["jpg", "png", "jpeg"], key="single_file")
+            up_file = st.file_uploader("사진 업로드", type=["jpg", "png", "jpeg"])
             if up_file:
-                # 파일 버퍼에서 직접 읽기
-                file_bytes = np.frombuffer(up_file.read(), np.uint8)
-                img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                
-                # 원본 표시 (너무 크면 가로폭 제한)
-                st.image(img, channels="BGR", width=300, caption="업로드된 이미지")
-                
-                with st.spinner("분석 중..."):
+                img = cv2.imdecode(np.frombuffer(up_file.read(), np.uint8), cv2.IMREAD_COLOR)
+                st.image(img, width=200, channels="BGR")
+                if st.button("번호 추출"):
                     results = reader.readtext(img)
-                    # 전처리: 숫자만 추출 후 마지막 4자리
-                    detected_text = "".join([r[1] for r in results])
-                    nums = re.findall(r'\d+', detected_text)
-                    
+                    nums = re.findall(r'\d+', "".join([r[1] for r in results]))
                     if nums:
-                        # 인식된 전체 숫자 중 가장 마지막 4자리 선택 (통상 번호판 마지막 번호)
                         st.session_state.current_car = "".join(nums)[-4:]
-                        st.toast(f"✅ 인식 성공: {st.session_state.current_car}")
-                    else:
-                        st.error("숫자를 인식하지 못했습니다.")
+                        st.toast(f"인식 성공: {st.session_state.current_car}")
 
-        # 결과 표시 (개별)
         if st.session_state.current_car:
             st.markdown("---")
             car_num = st.session_state.current_car
-            is_violation, k_time, day_type = check_violation(car_num)
-            
+            is_v, kt, d_type = check_violation(car_num)
             res_db = df[df['car_number'] == car_num]
             name = res_db.iloc[0]['name'] if not res_db.empty else "미등록"
-            dept = res_db.iloc[0]['department'] if not res_db.empty else "외부/미등록"
+            dept = res_db.iloc[0]['department'] if not res_db.empty else "외부"
             
-            st.write(f"### 결과: {car_num}")
-            
-            if not res_db.empty:
-                st.success(f"✅ 등록 직원: {name} ({dept})")
-            else:
-                st.error(f"❌ {name} 차량입니다.")
+            st.subheader(f"조회 결과: {car_num}")
+            if is_v: st.error(f"🚨 운행 위반 ({d_type}날)")
+            else: st.success(f"✅ 정상 운행 ({d_type}날)")
+            st.write(f"**소속:** {dept} / **성명:** {name}")
 
-            if is_violation: 
-                st.warning(f"🚨 금일은 **[{day_type}날]**로 운행 위반입니다.")
-            else: 
-                st.info(f"✅ 금일은 **[{day_type}날]**로 정상 운행입니다.")
-
-            if st.button("📋 기록하기", type="primary"):
+            if st.button("📋 결과 기록하기", type="primary"):
                 st.session_state.check_history.append({
-                    "점검시간": k_time.strftime("%H:%M:%S"),
-                    "차량번호": car_num, "성명": name, "부서": dept, 
-                    "판정": "위반" if is_violation else "정상"
+                    "점검시간": kt.strftime("%H:%M:%S"), "차량번호": car_num,
+                    "성명": name, "부서": dept, "판정": "위반" if is_v else "정상"
                 })
-                st.toast(f"{car_num} 기록 완료!")
-                st.session_state.current_car = None # 처리 후 초기화
+                st.session_state.current_car = None
                 st.rerun()
 
     else:
@@ -200,29 +156,89 @@ with tab1:
         m_col1, m_col2 = st.columns(2)
         
         with m_col1:
-            st.markdown("**1. 텍스트 일괄 입력**")
-            bulk_text = st.text_area("번호판 4자리를 쉼표, 공백, 줄바꿈 등으로 구분하여 입력", height=120, placeholder="예: 1234, 5678\n9012")
-            if st.button("텍스트 일괄 분석"):
+            bulk_text = st.text_area("번호 4자리 나열 (공백/쉼표 구분)", placeholder="1234 5678 9012")
+            if st.button("텍스트 분석"):
                 nums = re.findall(r'\d{4}', bulk_text)
-                temp_results = []
+                st.session_state.batch_results = []
                 for n in nums:
                     is_v, kt, _ = check_violation(n)
                     res_db = df[df['car_number'] == n]
-                    temp_results.append({
+                    st.session_state.batch_results.append({
                         "점검시간": kt.strftime("%H:%M:%S"), "차량번호": n,
                         "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
                         "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
-                        "판정": "위반" if is_v else "정상",
-                        "type": "text" # 텍스트 입력 표시
+                        "판정": "위반" if is_v else "정상"
                     })
-                # 텍스트 결과는 기존 visual_results에 추가하지 않고 테이블로만 표시
-                if temp_results:
-                    st.session_state.batch_text_results = temp_results
-                else:
-                    st.warning("유효한 4자리 숫자를 찾지 못했습니다.")
 
         with m_col2:
-            st.markdown("**2. 사진 일괄 업로드 (썸네일 표시)**")
-            multi_files = st.file_uploader("사진 여러 장 선택", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="multi_file")
+            multi_files = st.file_uploader("사진 여러 장 업로드", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+            # [수정된 부분] 변수명 오타 해결 및 콜론 추가
+            if st.button("사진 일괄 분석") and multi_files:
+                st.session_state.batch_visual_results = []
+                p_bar = st.progress(0)
+                for i, f in enumerate(multi_files):
+                    img = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
+                    if img is None: continue
+                    
+                    # 썸네일 생성
+                    thumb = cv2.resize(img, (200, int(img.shape[0] * (200 / img.shape[1]))))
+                    b64_img = opencv_to_base64(thumb)
+                    
+                    ocr_res = reader.readtext(img)
+                    found = re.findall(r'\d{4}', "".join([r[1] for r in ocr_res]))
+                    n = found[-1] if found else "인식불가"
+                    is_v, kt, _ = check_violation(n)
+                    res_db = df[df['car_number'] == n]
+                    
+                    st.session_state.batch_visual_results.append({
+                        "img_base64": b64_img, "점검시간": kt.strftime("%H:%M:%S"), "차량번호": n,
+                        "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
+                        "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
+                        "판정": "위반" if is_v else "정상" if found else "실패"
+                    })
+                    p_bar.progress((i + 1) / len(multi_files))
+
+        # 썸네일 결과 표시
+        if st.session_state.batch_visual_results:
+            st.markdown("---")
+            cols = st.columns(5)
+            for idx, item in enumerate(st.session_state.batch_visual_results):
+                color = "red" if item['판정'] == "위반" else "green"
+                with cols[idx % 5]:
+                    st.markdown(f"""
+                        <div class="thumb-card">
+                            <img src="{item['img_base64']}" class="thumb-img">
+                            <div class="result-text">{item['차량번호']} ({item['성명']})</div>
+                            <div class="result-text" style="color: {color};">{item['판정']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
             
-            if st.button("사진 일괄 분석") and multi_
+            if st.button("💾 위 사진 내역 모두 기록하기", type="primary"):
+                for item in st.session_state.batch_visual_results:
+                    if item['차량번호'] != "인식불가":
+                        data = item.copy()
+                        del data['img_base64']
+                        st.session_state.check_history.append(data)
+                st.session_state.batch_visual_results = []
+                st.success("기록 완료!")
+                st.rerun()
+
+# =========================
+# 3. [탭 2] 점검 기록 관리
+# =========================
+with tab2:
+    st.subheader("📊 오늘의 점검 내역")
+    if st.session_state.check_history:
+        h_df = pd.DataFrame(st.session_state.check_history)
+        st.dataframe(h_df, use_container_width=True)
+        csv = h_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 CSV 다운로드", data=csv, file_name="check_report.csv")
+    else:
+        st.write("기록이 없습니다.")
+
+# =========================
+# 4. [탭 3] 가이드
+# =========================
+with tab3:
+    st.info("차량 2부제 점검 시스템 가이드")
+    st.markdown("- **텍스트 입력**: 여러 대를 한꺼번에 입력할 때 사용하세요.\n- **사진 일괄 분석**: 여러 장의 사진을 올리면 썸네일과 함께 분석 결과를 보여줍니다.")
