@@ -174,7 +174,7 @@ with tab1:
 
         with m_col2:
             st.markdown("**2. 사진 여러 장 업로드**")
-            multi_files = st.file_uploader("여러 사진 선택", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="auto_batch")
+            multi_files = st.file_uploader("주의! 5장 이하 업로드", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="auto_batch")
             
             # --- 분석 트리거 로직 ---
             if multi_files:
