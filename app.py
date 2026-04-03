@@ -80,30 +80,40 @@ with tab1:
             else:
                 st.warning("번호를 입력하세요.")
 
-    with col2:
+  with col2:
         st.subheader("📷 사진 인식")
         up_file = st.file_uploader("번호판 촬영/업로드", type=["jpg", "png", "jpeg"])
+        
         if up_file:
+            # 1. 이미지 로드 및 최적화
             img_array = np.frombuffer(up_file.read(), np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
             
-            # 이미지 최적화 (해상도 축소)
             h, w = img.shape[:2]
             if w > 1000:
                 img = cv2.resize(img, (1000, int(h * 1000 / w)))
             
             st.image(img, width=180, caption="업로드된 사진")
             
-            if st.button("사진에서 번호 추출"):
-                with st.spinner("분석 중..."):
+            # 2. [자동 실행] 버튼 클릭 없이 바로 OCR 분석 시작
+            with st.spinner("🚀 자동으로 번호를 추출하는 중..."):
+                try:
                     results = reader.readtext(img)
                     detected = "".join([r[1] for r in results])
                     nums = re.findall(r'\d+', detected)
+                    
                     if nums:
-                        st.session_state.current_car = "".join(nums)[-4:]
-                        st.toast("번호 인식 성공!")
+                        # 추출된 번호를 세션에 즉시 저장
+                        new_car_num = "".join(nums)[-4:]
+                        
+                        # 중복 실행 방지를 위해 값이 바뀔 때만 토스트 메시지 표시
+                        if st.session_state.current_car != new_car_num:
+                            st.session_state.current_car = new_car_num
+                            st.toast(f"✅ 번호 인식 성공: {new_car_num}")
                     else:
-                        st.error("번호를 찾지 못했습니다.")
+                        st.error("번호를 찾지 못했습니다. 다시 촬영해 주세요.")
+                except Exception as e:
+                    st.error(f"분석 중 오류 발생: {e}")
 
 # =========================
 # 3. 판별 결과 및 기록 저장 (핵심 로직)
