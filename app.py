@@ -12,7 +12,6 @@ import base64
 # =========================
 st.set_page_config(page_title="KHEPI 차량 점검 시스템", layout="wide")
 
-# 세션 상태 초기화 (텍스트/사진 결과 분리 저장)
 if 'check_history' not in st.session_state:
     st.session_state.check_history = []
 if 'current_car' not in st.session_state:
@@ -38,7 +37,6 @@ with st.sidebar:
         st.success("모든 기록이 삭제되었습니다.")
         st.rerun()
 
-# CSS 스타일
 st.markdown("""
     <style>
     .main-title { font-size: 24px !important; font-weight: bold; margin-bottom: 15px; color: #1E3A8A; }
@@ -52,7 +50,6 @@ st.markdown("""
 # =========================
 # 유틸리티 함수
 # =========================
-
 @st.cache_data
 def load_db():
     try:
@@ -64,7 +61,7 @@ def load_db():
             except: return str(val).strip().zfill(4)
         df['car_number'] = df['car_number'].apply(format_car_num)
         return df
-    except Exception as e:
+    except:
         st.error("car_db.csv 파일을 찾을 수 없습니다."); st.stop()
 
 @st.cache_resource
@@ -91,10 +88,8 @@ def resize_image(image, max_width=800):
     h, w = image.shape[:2]
     if w > max_width:
         ratio = max_width / float(w)
-        new_dim = (max_width, int(h * ratio))
-        return cv2.resize(image, new_dim, interpolation=cv2.INTER_AREA)
+        return cv2.resize(image, (max_width, int(h * ratio)), interpolation=cv2.INTER_AREA)
     return image
-    
 
 df = load_db()
 reader = load_ocr()
@@ -119,34 +114,19 @@ with tab1:
         with col2:
             st.subheader("📷 사진 인식")
             up_file = st.file_uploader("사진 업로드", type=["jpg", "png", "jpeg"], key="single")
-            
             if up_file:
-                # [변경점] 파일 이름이나 크기가 바뀌었을 때만 분석하도록 세션 체크 (무한 루프 방지)
                 file_id = f"{up_file.name}_{up_file.size}"
                 if st.session_state.get('last_single_file') != file_id:
                     with st.spinner("이미지 분석 중..."):
-                        # 1. 파일 읽기 및 압축
                         file_bytes = np.frombuffer(up_file.read(), np.uint8)
-                        img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                        img = resize_image(img_raw, max_width=600)
-                        
-                        # 2. OCR 분석 즉시 실행
-                        results = reader.readtext(img)
-                        # 숫자만 추출
-                        combined_text = "".join([r[1] for r in results])
-                        nums = re.findall(r'\d+', combined_text)
-                        
+                        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                        results = reader.readtext(resize_image(img, 600))
+                        nums = re.findall(r'\d+', "".join([r[1] for r in results]))
                         if nums:
-                            extracted_num = "".join(nums)[-4:]
-                            st.session_state.current_car = extracted_num
-                            st.session_state.last_single_file = file_id # 분석 완료 기록
-                            st.toast(f"추출 성공: {extracted_num}")
-                        else:
-                            st.error("번호를 인식하지 못했습니다. 직접 입력해 주세요.")
-                
-                # 이미지 미리보기
-                st.image(resize_image(cv2.imdecode(np.frombuffer(up_file.getvalue(), np.uint8), cv2.IMREAD_COLOR), max_width=300), 
-                         caption="업로드된 이미지", channels="BGR")
+                            st.session_state.current_car = "".join(nums)[-4:]
+                            st.session_state.last_single_file = file_id
+                            st.toast(f"추출 성공: {st.session_state.current_car}")
+                st.image(resize_image(cv2.imdecode(np.frombuffer(up_file.getvalue(), np.uint8), cv2.IMREAD_COLOR), 300), caption="업로드된 이미지", channels="BGR")
 
         if st.session_state.current_car:
             st.markdown("---")
@@ -157,11 +137,8 @@ with tab1:
             dept = res_db.iloc[0]['department'] if not res_db.empty else "외부"
             
             st.subheader(f"조회 결과: {car_num}")
-            display_date = f"{kt.month}월 {kt.day}일 {d_type}날"
-            if is_v: 
-                st.error(f"🚨 운행 위반 ({display_date})")
-            else: 
-                st.success(f"✅ 정상 운행 ({display_date})")
+            if is_v: st.error(f"🚨 운행 위반 ({kt.month}월 {kt.day}일 {d_type}날)")
+            else: st.success(f"✅ 정상 운행 ({kt.month}월 {kt.day}일 {d_type}날)")
             st.write(f"**소속:** {dept} | **성명:** {name}")
 
             if st.button("📋 이 결과 저장하기", type="primary"):
@@ -177,8 +154,8 @@ with tab1:
         m_col1, m_col2 = st.columns(2)
         
         with m_col1:
-            st.markdown("**1. 텍스트 입력 (번호 4자리 나열)**")
-            bulk_text = st.text_area("쉼표, 엔터, 공백 등으로 구분 가능", placeholder="1234 5678 9012", height=150)
+            st.markdown("**1. 텍스트 입력**")
+            bulk_text = st.text_area("번호 4자리 나열 (쉼표, 엔터 구분)", placeholder="1234 5678", height=150)
             if st.button("차번호 조회 시작"):
                 nums = re.findall(r'\d{4}', bulk_text)
                 if nums:
@@ -193,21 +170,23 @@ with tab1:
                             "판정": "위반" if is_v else "정상"
                         })
                     st.session_state.batch_text_results = temp_res
-                    st.success(f"{len(nums)}대를 찾았습니다. 아래 표를 확인하세요.")
-                else:
-                    st.warning("4자리 숫자를 찾지 못했습니다.")
+                    st.success(f"{len(nums)}대 분석 완료")
 
         with m_col2:
             st.markdown("**2. 사진 여러 장 업로드**")
             multi_files = st.file_uploader("여러 사진 선택", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="auto_batch")
+            
+            # --- 분석 트리거 로직 ---
             if multi_files:
-                current_file_names = [f.name for f in multi_files]
-                if current_file_names != st.session_state.get('last_files', []):
+                current_file_ids = [f"{f.name}_{f.size}" for f in multi_files]
+                if current_file_ids != st.session_state.get('last_files', []):
                     st.session_state.batch_visual_results = []
-                    st.session_state.last_files = current_file_names
+                    st.session_state.last_files = current_file_ids
                     
                     p_bar = st.progress(0)
+                    status = st.empty()
                     for i, f in enumerate(multi_files):
+                        status.text(f"분석 중: {f.name} ({i+1}/{len(multi_files)})")
                         file_bytes = np.frombuffer(f.read(), np.uint8)
                         img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                         if img_raw is None: continue
@@ -223,98 +202,65 @@ with tab1:
                         
                         st.session_state.batch_visual_results.append({
                             "img_base64": opencv_to_base64(thumb), 
-                            "점검시간": kt.strftime("%y%m%d %H:%M:%S"),
+                            "점검시간": kt.strftime("%y-%m-%d %H:%M:%S"),
                             "차량번호": n,
                             "성명": res_db.iloc[0]['name'] if not res_db.empty else "미등록",
                             "부서": res_db.iloc[0]['department'] if not res_db.empty else "외부",
                             "판정": "위반" if is_v else "정상" if found else "실패"
                         })
                         p_bar.progress((i + 1) / len(multi_files))
-                    st.success("✅ 모든 사진 분석 완료!")
-                    
-        # ---------------------------
-        # [결과 출력 영역]
-        # ---------------------------
-        
-        # 1. 텍스트 분석 결과 테이블
+                    status.success("✅ 분석 완료!")
+                    st.rerun() # 결과 반영을 위해 재실행
+
+        # --- 결과 출력 영역 (중요: m_col2 밖으로 배치) ---
         if st.session_state.batch_text_results:
             st.markdown("---")
-            st.write("### 📋 차번호 분석 결과")
+            st.write("### 📋 텍스트 분석 결과")
             st.table(pd.DataFrame(st.session_state.batch_text_results))
-            if st.button("💾 위 결과 모두 기록하기", type="primary"):
+            if st.button("💾 위 결과 기록하기"):
                 st.session_state.check_history.extend(st.session_state.batch_text_results)
                 st.session_state.batch_text_results = []
-                st.success("누적 목록에 저장되었습니다.")
                 st.rerun()
 
-        # 2. 사진 분석 결과 (썸네일)
         if st.session_state.batch_visual_results:
             st.markdown("---")
             st.write("### 📷 사진 분석 상세 결과")
+            v_df = pd.DataFrame(st.session_state.batch_visual_results).drop(columns=['img_base64'])
+            st.table(v_df)
             
-            # 1. 텍스트 분석과 동일한 형태의 데이터프레임 생성 (이미지 데이터 제외)
-            visual_df = pd.DataFrame(st.session_state.batch_visual_results).drop(columns=['img_base64'])
-            st.table(visual_df) # 또는 st.dataframe(visual_df, use_container_width=True)
-            
-            # 2. 시각적 확인을 위한 썸네일 뷰 (선택 사항)
             with st.expander("🖼️ 분석 사진 썸네일 보기"):
                 cols = st.columns(5)
                 for idx, item in enumerate(st.session_state.batch_visual_results):
-                    color = "red" if item['판정'] == "위반" else "green" if item['판정'] == "정상" else "gray"
                     with cols[idx % 5]:
+                        color = "red" if item['판정'] == "위반" else "green" if item['판정'] == "정상" else "gray"
                         st.markdown(f"""
                             <div class="thumb-card">
                                 <img src="{item['img_base64']}" class="thumb-img">
                                 <div class="result-text">{item['차량번호']}</div>
                                 <div class="result-text" style="color: {color};">{item['판정']}</div>
                             </div>
-                            """, unsafe_allow_html=True)
+                        """, unsafe_allow_html=True)
             
-            # 3. 저장 버튼
-            if st.button("💾 위 사진 내역 모두 기록하기", type="primary", key="save_visual"):
+            if st.button("💾 위 사진 내역 모두 기록하기", type="primary", key="save_batch_v"):
                 for item in st.session_state.batch_visual_results:
                     if item['차량번호'] != "실패":
-                        data = item.copy()
-                        del data['img_base64'] # 이미지 데이터는 히스토리에 저장하지 않음
+                        data = item.copy(); del data['img_base64']
                         st.session_state.check_history.append(data)
                 st.session_state.batch_visual_results = []
-                st.success("사진 점검 내역이 저장되었습니다.")
                 st.rerun()
 
 # =========================
-# 3. [탭 2] 점검 기록 관리
+# 3. [탭 2] 및 [탭 3]
 # =========================
 with tab2:
     st.subheader("📊 오늘의 점검 내역")
     if st.session_state.check_history:
-        h_df = pd.DataFrame(st.session_state.check_history).iloc[::-1] # 최신순
+        h_df = pd.DataFrame(st.session_state.check_history).iloc[::-1]
         st.dataframe(h_df, use_container_width=True)
         csv = h_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 전체 기록 다운로드 (CSV)", data=csv, file_name=f"khepi_{datetime.datetime.now().strftime('%m%d')}.csv")
-    else:
-        st.write("기록이 없습니다.")
+        st.download_button("📥 CSV 다운로드", data=csv, file_name=f"khepi_{datetime.datetime.now().strftime('%m%d')}.csv")
+    else: st.write("기록이 없습니다.")
         
 with tab3:
-    st.info("💡 **KHEPI 차량 2부제 점검 가이드 Ver. 1.0**")
-    
-    st.markdown("""
-    1. **시스템 목적**: 본 사이트는 차량 2부제 시행에 따라 KHEPI 직원 차량 및 위반 여부를 확인하기 위한 시스템입니다.
-    <br><br>
-    2. **사용권한과 책임**:
-        * **사용권한**: 본 시스템에서 조회되는 정보는 내부직원이 업무목적으로만 사용해야 합니다.
-        * **책임**: 차량번호 및 개인정보에 대한 외부유출을 엄격히 금지하며, 이를 위반하여 발생하는 모든 책임은 사용자 본인에게 있습니다.
-    <br><br>
-    3. **2부제 운영 원칙**:
-        * **날짜가 [홀수]인 날**: 차량 번호 끝자리가 [짝수]면 위반입니다.
-        * **날짜가 [짝수]인 날**: 차량 번호 끝자리가 [홀수]면 위반입니다.
-    <br><br>
-    4. **사용 방법**:
-        * **조회**: 차량 번호 4자리를 직접 입력하거나 번호판 사진을 찍어 분석하세요.
-        * **차번호 일괄입력**: 쉼표나 엔터로 구분된 4자리 숫자들을 한꺼번에 판별합니다.
-        * **사진 일괄입력**: 여러 장의 사진을 올리면 썸네일과 함께 분석 결과를 보여줍니다.
-        * **기록**: 판별 결과가 나오면 하단의 **[기록하기]** 버튼을 눌러 목록에 추가하세요.
-    <br><br>
-    5. **데이터 관리**:
-        * 저장된 목록은 **[점검 누적 목록]** 탭에서 확인 및 CSV 파일로 다운로드할 수 있습니다.
-        * **주의**: 브라우저 창을 닫거나 새로고침(F5)을 하면 저장된 목록이 사라지니 미리 다운로드하세요.
-    """, unsafe_allow_html=True)
+    st.info("💡 KHEPI 차량 2부제 점검 가이드")
+    st.markdown("1. 차량 번호 4자리를 인식합니다.\n2. 날짜와 번호의 홀짝을 대조하여 위반 여부를 판별합니다.")
